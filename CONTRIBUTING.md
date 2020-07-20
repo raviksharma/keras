@@ -23,20 +23,20 @@ The more information you provide, the easier it is for us to validate that there
 
 ## Requesting a Feature
 
-You can also use Github issues to request features you would like to see in Keras, or changes in the Keras API.
+You can also use [Tensorflow Github issues](https://github.com/tensorflow/tensorflow/issues) to request features you would like to see in Keras, or changes in the Keras API.
 
 1. Provide a clear and detailed explanation of the feature you want and why it's important to add. Keep in mind that we want features that will be useful to the majority of our users and not just a small subset. If you're just targeting a minority of users, consider writing an add-on library for Keras. It is crucial for Keras to avoid bloating the API and codebase.
 
 2. Provide code snippets demonstrating the API you have in mind and illustrating the use cases of your feature. Of course, you don't need to write any real code at this point!
 
-3. After discussing the feature you may choose to attempt a Pull Request. If you're at all able, start writing some code. We always have more work to do than time to do it. If you can write some code then that will speed the process along.
+3. After discussing the feature you may choose to attempt a Pull Request on tf.keras. If you're at all able, start writing some code. We always have more work to do than time to do it. If you can write some code then that will speed the process along.
 
 
 ---
 
 ## Requests for Contributions
 
-[This is the board](https://github.com/fchollet/keras/projects/1) where we list current outstanding issues and features to be added. If you want to start contributing to Keras, this is the place to start.
+[This is the board](https://github.com/keras-team/keras/projects/1) where we list current outstanding issues and features to be added. If you want to start contributing to Keras, this is the place to start.
 
 
 ---
@@ -45,8 +45,12 @@ You can also use Github issues to request features you would like to see in Kera
 
 **Where should I submit my pull request?**
 
-1. **Keras improvements and bugfixes** go to the [Keras `master` branch](https://github.com/fchollet/keras/tree/master).
-2. **Experimental new features** such as layers and datasets go to [keras-contrib](https://github.com/farizrahman4u/keras-contrib). Unless it is a new feature listed in [Requests for Contributions](https://github.com/fchollet/keras/projects/1), in which case it belongs in core Keras. If you think your feature belongs in core Keras, you can submit a design doc to explain your feature and argue for it (see explanations below).
+#### Note:
+
+We are no longer adding new features to multi-backend Keras (we only fix bugs), as we are refocusing development efforts on tf.keras. If you are still interested in submitting a feature pull request, please direct it to tf.keras in the TensorFlow repository instead.
+
+1. **Keras improvements and bugfixes** go to the [Keras `master` branch](https://github.com/keras-team/keras/tree/master).
+2. **Experimental new features** such as layers and datasets go to [keras-contrib](https://github.com/farizrahman4u/keras-contrib). Unless it is a new feature listed in [Requests for Contributions](https://github.com/keras-team/keras/projects/1), in which case it belongs in core Keras. If you think your feature belongs in core Keras, you can submit a design doc to explain your feature and argue for it (see explanations below).
 
 Please note that PRs that are primarily about **code style** (as opposed to fixing bugs, improving docs, or adding new functionality) will likely be rejected.
 
@@ -71,9 +75,9 @@ Here's a quick guide to submitting your improvements:
     - You will need to install the test requirements as well: `pip install -e .[tests]`.
 
 6. Make sure all tests are passing:
-    - with the Theano backend, on Python 2.7 and Python 3.5. Make sure you have the development version of Theano.
-    - with the TensorFlow backend, on Python 2.7 and Python 3.5. Make sure you have the development version of TensorFlow.
-    - with the CNTK backend, on Python 2.7 and Python 3.5. Make sure you have the development version of CNTK.
+    - with the Theano backend, on Python 2.7 and Python 3.6. Make sure you have the development version of Theano.
+    - with the TensorFlow backend, on Python 2.7 and Python 3.6. Make sure you have the development version of TensorFlow.
+    - with the CNTK backend, on Python 2.7 and Python 3.6. Make sure you have the development version of CNTK.
 
 7. We use PEP8 syntax conventions, but we aren't dogmatic when it comes to line length. Make sure your lines stay reasonably sized, though. To make your life easier, we recommend running a PEP8 linter:
     - Install PEP8 packages: `pip install pep8 pytest-pep8 autopep8`
@@ -90,4 +94,4 @@ Here's a quick guide to submitting your improvements:
 
 ## Adding new examples
 
-Even if you don't contribute to the Keras source code, if you have an application of Keras that is concise and powerful, please consider adding it to our collection of examples. [Existing examples](https://github.com/fchollet/keras/tree/master/examples) show idiomatic Keras code: make sure to keep your own script in the same spirit.
+Even if you don't contribute to the Keras source code, if you have an application of Keras that is concise and powerful, please consider adding it to our collection of examples. [Existing examples](https://github.com/keras-team/keras/tree/master/examples) show idiomatic Keras code: make sure to keep your own script in the same spirit.

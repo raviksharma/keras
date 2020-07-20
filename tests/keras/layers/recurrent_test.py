@@ -4,13 +4,12 @@ from numpy.testing import assert_allclose
 
 import keras
 from keras.utils.test_utils import layer_test
-from keras.utils.test_utils import keras_test
 from keras.layers import recurrent
 from keras.layers import embeddings
 from keras.models import Sequential
 from keras.models import Model
-from keras.engine.topology import Input
-from keras.layers.core import Masking
+from keras.engine import Input
+from keras.layers import Masking
 from keras import regularizers
 from keras import backend as K
 
@@ -18,18 +17,16 @@ num_samples, timesteps, embedding_dim, units = 2, 5, 4, 3
 embedding_num = 12
 
 
-@keras_test
-def rnn_test(f):
-    """
-    All the recurrent layers share the same interface,
-    so we can run through them with a single function.
-    """
-    f = keras_test(f)
-    return pytest.mark.parametrize('layer_class', [
-        recurrent.SimpleRNN,
-        recurrent.GRU,
-        recurrent.LSTM
-    ])(f)
+rnn_test = pytest.mark.parametrize('layer_class',
+                                   [recurrent.SimpleRNN,
+                                    recurrent.GRU,
+                                    recurrent.LSTM])
+
+
+rnn_cell_test = pytest.mark.parametrize('cell_class',
+                                        [recurrent.SimpleRNNCell,
+                                         recurrent.GRUCell,
+                                         recurrent.LSTMCell])
 
 
 @rnn_test
@@ -52,7 +49,7 @@ def test_dynamic_behavior(layer_class):
 
 
 @rnn_test
-def test_stateful_invalid_use(layer_class):
+def DISABLED_test_stateful_invalid_use(layer_class):
     layer = layer_class(units,
                         stateful=True,
                         batch_input_shape=(num_samples,
@@ -70,8 +67,8 @@ def test_stateful_invalid_use(layer_class):
 
 
 @rnn_test
-@pytest.mark.skipif((K.backend() == 'cntk'),
-                    reason='Not yet supported.')
+@pytest.mark.skipif((K.backend() in ['theano']),
+                    reason='Not supported.')
 def test_dropout(layer_class):
     for unroll in [True, False]:
         layer_test(layer_class,
@@ -86,10 +83,8 @@ def test_dropout(layer_class):
         layer = layer_class(units, dropout=0.5, recurrent_dropout=0.5,
                             input_shape=(timesteps, embedding_dim))
         y = layer(x)
-        assert y._uses_learning_phase
 
         y = layer(x, training=True)
-        assert not getattr(y, '_uses_learning_phase')
 
         # Test that dropout is not applied during testing
         x = np.random.random((num_samples, timesteps, embedding_dim))
@@ -97,7 +92,6 @@ def test_dropout(layer_class):
                             unroll=unroll,
                             input_shape=(timesteps, embedding_dim))
         model = Sequential([layer])
-        assert model.uses_learning_phase
         y1 = model.predict(x)
         y2 = model.predict(x)
         assert_allclose(y1, y2)
@@ -168,6 +162,120 @@ def test_masking_correctness(layer_class):
     assert_allclose(out7, out6, atol=1e-5)
 
 
+@pytest.mark.skipif(K.backend() == 'cntk', reason='Not supported.')
+def test_masking_correctness_output_not_equal_to_first_state():
+
+    class Cell(keras.layers.Layer):
+
+        def __init__(self):
+            self.state_size = None
+            self.output_size = None
+            super(Cell, self).__init__()
+
+        def build(self, input_shape):
+            self.state_size = input_shape[-1]
+            self.output_size = input_shape[-1]
+
+        def call(self, inputs, states):
+            return inputs, [s + 1 for s in states]
+
+    num_samples = 5
+    num_timesteps = 4
+    state_size = input_size = 3  # also equal to `output_size`
+
+    # random inputs and state values
+    x_vals = np.random.random((num_samples, num_timesteps, input_size))
+    # last timestep masked for first sample (all zero inputs masked by Masking layer)
+    x_vals[0, -1, :] = 0
+    s_initial_vals = np.random.random((num_samples, state_size))
+
+    # final outputs equal to last inputs
+    y_vals_expected = x_vals[:, -1].copy()
+    # except for first sample, where it is equal to second to last value due to mask
+    y_vals_expected[0] = x_vals[0, -2]
+
+    s_final_vals_expected = s_initial_vals.copy()
+    # states are incremented `num_timesteps - 1` times for first sample
+    s_final_vals_expected[0] += (num_timesteps - 1)
+    # and `num_timesteps - 1` times for remaining samples
+    s_final_vals_expected[1:] += num_timesteps
+
+    for unroll in [True, False]:
+        x = Input((num_timesteps, input_size), name="x")
+        x_masked = Masking()(x)
+        s_initial = Input((state_size,), name="s_initial")
+        y, s_final = recurrent.RNN(Cell(),
+                                   return_state=True,
+                                   unroll=unroll)(x_masked, initial_state=s_initial)
+        model = Model([x, s_initial], [y, s_final])
+        model.compile(optimizer='sgd', loss='mse')
+
+        y_vals, s_final_vals = model.predict([x_vals, s_initial_vals])
+        assert_allclose(y_vals,
+                        y_vals_expected,
+                        err_msg="Unexpected output for unroll={}".format(unroll))
+        assert_allclose(s_final_vals,
+                        s_final_vals_expected,
+                        err_msg="Unexpected state for unroll={}".format(unroll))
+
+
+@pytest.mark.skipif(K.backend() == 'cntk', reason='Not supported.')
+def test_masking_correctness_output_size_not_equal_to_first_state_size():
+
+    class Cell(keras.layers.Layer):
+
+        def __init__(self):
+            self.state_size = None
+            self.output_size = None
+            super(Cell, self).__init__()
+
+        def build(self, input_shape):
+            self.state_size = input_shape[-1]
+            self.output_size = input_shape[-1] * 2
+
+        def call(self, inputs, states):
+            return keras.layers.concatenate([inputs] * 2), [s + 1 for s in states]
+
+    num_samples = 5
+    num_timesteps = 6
+    input_size = state_size = 7
+
+    # random inputs and state values
+    x_vals = np.random.random((num_samples, num_timesteps, input_size))
+    # last timestep masked for first sample (all zero inputs masked by Masking layer)
+    x_vals[0, -1, :] = 0
+    s_initial_vals = np.random.random((num_samples, state_size))
+
+    # final outputs equal to last inputs concatenated
+    y_vals_expected = np.concatenate([x_vals[:, -1]] * 2, axis=-1)
+    # except for first sample, where it is equal to second to last value due to mask
+    y_vals_expected[0] = np.concatenate([x_vals[0, -2]] * 2, axis=-1)
+
+    s_final_vals_expected = s_initial_vals.copy()
+    # states are incremented `num_timesteps - 1` times for first sample
+    s_final_vals_expected[0] += (num_timesteps - 1)
+    # and `num_timesteps - 1` times for remaining samples
+    s_final_vals_expected[1:] += num_timesteps
+
+    for unroll in [True, False]:
+        x = Input((num_timesteps, input_size), name="x")
+        x_masked = Masking()(x)
+        s_initial = Input((state_size,), name="s_initial")
+        y, s_final = recurrent.RNN(Cell(),
+                                   return_state=True,
+                                   unroll=unroll)(x_masked, initial_state=s_initial)
+        model = Model([x, s_initial], [y, s_final])
+        model.compile(optimizer='sgd', loss='mse')
+
+        y_vals, s_final_vals = model.predict([x_vals, s_initial_vals])
+        assert_allclose(y_vals,
+                        y_vals_expected,
+                        err_msg="Unexpected output for unroll={}".format(unroll))
+        assert_allclose(s_final_vals,
+                        s_final_vals_expected,
+                        err_msg="Unexpected state for unroll={}".format(unroll))
+
+
 @rnn_test
 def test_implementation_mode(layer_class):
     for mode in [1, 2]:
@@ -208,8 +316,6 @@ def test_regularizer(layer_class):
     assert layer.activity_regularizer
     x = K.variable(np.ones((num_samples, timesteps, embedding_dim)))
     layer(x)
-    assert len(layer.cell.get_losses_for(x)) == 0
-    assert len(layer.get_losses_for(x)) == 1
 
 
 @rnn_test
@@ -229,10 +335,9 @@ def test_trainability(layer_class):
     assert len(layer.non_trainable_weights) == 0
 
 
-@keras_test
 def test_masking_layer():
     ''' This test based on a previously failing issue here:
-    https://github.com/fchollet/keras/issues/1567
+    https://github.com/keras-team/keras/issues/1567
     '''
     inputs = np.random.random((6, 3, 4))
     targets = np.abs(np.random.random((6, 3, 5)))
@@ -272,7 +377,8 @@ def test_specify_initial_state_keras_tensor(layer_class):
         output = layer(inputs, initial_state=initial_state[0])
     else:
         output = layer(inputs, initial_state=initial_state)
-    assert initial_state[0] in layer.inbound_nodes[0].input_tensors
+    assert id(initial_state[0]) in [
+        id(x) for x in layer._inbound_nodes[0].input_tensors]
 
     model = Model([inputs] + initial_state, output)
     model.compile(loss='categorical_crossentropy', optimizer='adam')
@@ -340,7 +446,8 @@ def test_initial_states_as_other_inputs(layer_class):
 
     layer = layer_class(units)
     output = layer(inputs)
-    assert initial_state[0] in layer.inbound_nodes[0].input_tensors
+    assert id(initial_state[0]) in [
+        id(x) for x in layer._inbound_nodes[0].input_tensors]
 
     model = Model(inputs, output)
     model.compile(loss='categorical_crossentropy', optimizer='adam')
@@ -355,7 +462,7 @@ def test_initial_states_as_other_inputs(layer_class):
 @rnn_test
 def test_specify_state_with_masking(layer_class):
     ''' This test based on a previously failing issue here:
-    https://github.com/fchollet/keras/issues/1567
+    https://github.com/keras-team/keras/issues/1567
     '''
     num_states = 2 if layer_class is recurrent.LSTM else 1
 
@@ -403,7 +510,23 @@ def test_state_reuse(layer_class):
     outputs = model.predict(inputs)
 
 
-@keras_test
+@rnn_test
+@pytest.mark.skipif((K.backend() in ['theano']),
+                    reason='Not supported.')
+def test_state_reuse_with_dropout(layer_class):
+    input1 = Input(batch_shape=(num_samples, timesteps, embedding_dim))
+    layer = layer_class(units, return_state=True, return_sequences=True, dropout=0.2)
+    state = layer(input1)[1:]
+
+    input2 = Input(batch_shape=(num_samples, timesteps, embedding_dim))
+    output = layer_class(units)(input2, initial_state=state)
+    model = Model([input1, input2], output)
+
+    inputs = [np.random.random((num_samples, timesteps, embedding_dim)),
+              np.random.random((num_samples, timesteps, embedding_dim))]
+    outputs = model.predict(inputs)
+
+
 def test_minimal_rnn_cell_non_layer():
 
     class MinimalRNNCell(object):
@@ -439,7 +562,6 @@ def test_minimal_rnn_cell_non_layer():
     model.train_on_batch(np.zeros((6, 5, 5)), np.zeros((6, 32)))
 
 
-@keras_test
 def test_minimal_rnn_cell_non_layer_multiple_states():
 
     class MinimalRNNCell(object):
@@ -472,14 +594,12 @@ def test_minimal_rnn_cell_non_layer_multiple_states():
              MinimalRNNCell(16, 8),
              MinimalRNNCell(32, 16)]
     layer = recurrent.RNN(cells)
-    assert layer.cell.state_size == (32, 32, 16, 16, 8, 8)
     y = layer(x)
     model = keras.models.Model(x, y)
     model.compile(optimizer='rmsprop', loss='mse')
     model.train_on_batch(np.zeros((6, 5, 5)), np.zeros((6, 32)))
 
 
-@keras_test
 def test_minimal_rnn_cell_layer():
 
     class MinimalRNNCell(keras.layers.Layer):
@@ -490,6 +610,9 @@ def test_minimal_rnn_cell_layer():
             super(MinimalRNNCell, self).__init__(**kwargs)
 
         def build(self, input_shape):
+            # no time axis in the input shape passed to RNN cells
+            assert len(input_shape) == 2
+
             self.kernel = self.add_weight(shape=(input_shape[-1], self.units),
                                           initializer='uniform',
                                           name='kernel')
@@ -556,7 +679,68 @@ def test_minimal_rnn_cell_layer():
     assert_allclose(y_np, y_np_2, atol=1e-4)
 
 
-@keras_test
+@rnn_cell_test
+def test_builtin_rnn_cell_layer(cell_class):
+    # Test basic case.
+    x = keras.Input((None, 5))
+    cell = cell_class(32)
+    layer = recurrent.RNN(cell)
+    y = layer(x)
+    model = keras.models.Model(x, y)
+    model.compile(optimizer='rmsprop', loss='mse')
+    model.train_on_batch(np.zeros((6, 5, 5)), np.zeros((6, 32)))
+
+    # Test basic case serialization.
+    x_np = np.random.random((6, 5, 5))
+    y_np = model.predict(x_np)
+    weights = model.get_weights()
+    config = layer.get_config()
+    layer = recurrent.RNN.from_config(config)
+    y = layer(x)
+    model = keras.models.Model(x, y)
+    model.set_weights(weights)
+    y_np_2 = model.predict(x_np)
+    assert_allclose(y_np, y_np_2, atol=1e-4)
+
+    # Test stacking.
+    cells = [cell_class(8),
+             cell_class(12),
+             cell_class(32)]
+    layer = recurrent.RNN(cells)
+    y = layer(x)
+    model = keras.models.Model(x, y)
+    model.compile(optimizer='rmsprop', loss='mse')
+    model.train_on_batch(np.zeros((6, 5, 5)), np.zeros((6, 32)))
+
+    # Test stacked RNN serialization.
+    x_np = np.random.random((6, 5, 5))
+    y_np = model.predict(x_np)
+    weights = model.get_weights()
+    config = layer.get_config()
+    layer = recurrent.RNN.from_config(config)
+    y = layer(x)
+    model = keras.models.Model(x, y)
+    model.set_weights(weights)
+    y_np_2 = model.predict(x_np)
+    assert_allclose(y_np, y_np_2, atol=1e-4)
+
+
+@pytest.mark.skipif((K.backend() in ['cntk', 'theano']),
+                    reason='Not supported.')
+def test_stacked_rnn_dropout():
+    cells = [recurrent.LSTMCell(3, dropout=0.1, recurrent_dropout=0.1),
+             recurrent.LSTMCell(3, dropout=0.1, recurrent_dropout=0.1)]
+    layer = recurrent.RNN(cells)
+
+    x = keras.Input((None, 5))
+    y = layer(x)
+    model = keras.models.Model(x, y)
+    model.compile('sgd', 'mse')
+    x_np = np.random.random((6, 5, 5))
+    y_np = np.random.random((6, 3))
+    model.train_on_batch(x_np, y_np)
+
+
 def test_stacked_rnn_attributes():
     cells = [recurrent.LSTMCell(3),
              recurrent.LSTMCell(3, kernel_regularizer='l2')]
@@ -572,11 +756,35 @@ def test_stacked_rnn_attributes():
     assert len(layer.trainable_weights) == 3
     assert len(layer.non_trainable_weights) == 3
 
-    # Test `get_losses_for`
     x = keras.Input((None, 5))
     y = K.sum(x)
     cells[0].add_loss(y, inputs=x)
-    assert layer.get_losses_for(x) == [y]
+
+
+def test_stacked_rnn_compute_output_shape():
+    cells = [recurrent.LSTMCell(3),
+             recurrent.LSTMCell(6)]
+    layer = recurrent.RNN(cells, return_state=True, return_sequences=True)
+    output_shape = layer.compute_output_shape((None, timesteps, embedding_dim))
+    expected_output_shape = [(None, timesteps, 6),
+                             (None, 3),
+                             (None, 3),
+                             (None, 6),
+                             (None, 6)]
+    assert [tuple(s) for s in output_shape] == expected_output_shape
+
+    # Test reverse_state_order = True for stacked cell.
+    stacked_cell = recurrent.StackedRNNCells(
+        cells, reverse_state_order=True)
+    layer = recurrent.RNN(
+        stacked_cell, return_state=True, return_sequences=True)
+    output_shape = layer.compute_output_shape((None, timesteps, embedding_dim))
+    expected_output_shape = [(None, timesteps, 6),
+                             (None, 6),
+                             (None, 6),
+                             (None, 3),
+                             (None, 3)]
+    assert [tuple(s) for s in output_shape] == expected_output_shape
 
 
 @rnn_test
@@ -591,7 +799,7 @@ def test_batch_size_equal_one(layer_class):
     model.train_on_batch(x, y)
 
 
-def test_rnn_cell_with_constants_layer():
+def DISABLED_test_rnn_cell_with_constants_layer():
 
     class RNNCellWithConstants(keras.layers.Layer):
 
@@ -602,7 +810,7 @@ def test_rnn_cell_with_constants_layer():
 
         def build(self, input_shape):
             if not isinstance(input_shape, list):
-                raise TypeError('expects constants shape')
+                raise TypeError('expects `constants` shape')
             [input_shape, constant_shape] = input_shape
             # will (and should) raise if more than one constant passed
 
@@ -671,8 +879,35 @@ def test_rnn_cell_with_constants_layer():
     y_np_3 = model.predict([x_np, c_np])
     assert_allclose(y_np, y_np_3, atol=1e-4)
 
+    # Test stacking.
+    cells = [recurrent.GRUCell(8),
+             RNNCellWithConstants(12),
+             RNNCellWithConstants(32)]
+    layer = recurrent.RNN(cells)
+    y = layer(x, constants=c)
+    model = keras.models.Model([x, c], y)
+    model.compile(optimizer='rmsprop', loss='mse')
+    model.train_on_batch(
+        [np.zeros((6, 5, 5)), np.zeros((6, 3))],
+        np.zeros((6, 32))
+    )
 
-def test_rnn_cell_with_constants_layer_passing_initial_state():
+    # Test stacked RNN serialization.
+    x_np = np.random.random((6, 5, 5))
+    c_np = np.random.random((6, 3))
+    y_np = model.predict([x_np, c_np])
+    weights = model.get_weights()
+    config = layer.get_config()
+    with keras.utils.CustomObjectScope(custom_objects):
+        layer = recurrent.RNN.from_config(config.copy())
+    y = layer(x, constants=c)
+    model = keras.models.Model([x, c], y)
+    model.set_weights(weights)
+    y_np_2 = model.predict([x_np, c_np])
+    assert_allclose(y_np, y_np_2, atol=1e-4)
+
+
+def DISABLED_test_rnn_cell_with_constants_layer_passing_initial_state():
 
     class RNNCellWithConstants(keras.layers.Layer):
 
@@ -758,6 +993,59 @@ def test_rnn_cell_with_constants_layer_passing_initial_state():
     model.set_weights(weights)
     y_np_3 = model.predict([x_np, s_np, c_np])
     assert_allclose(y_np, y_np_3, atol=1e-4)
+
+
+@rnn_test
+def DISABLED_test_rnn_cell_identity_initializer(layer_class):
+    inputs = Input(shape=(1, 2))
+    layer = layer_class(2, recurrent_initializer='identity')
+    layer(inputs)
+    recurrent_kernel = layer.get_weights()[1]
+    num_kernels = recurrent_kernel.shape[1] // recurrent_kernel.shape[0]
+    assert np.array_equal(recurrent_kernel,
+                          np.concatenate([np.identity(2)] * num_kernels, axis=1))
+
+
+@pytest.mark.skipif(K.backend() == 'cntk', reason='Not supported.')
+def test_inconsistent_output_state_size():
+
+    class PlusOneRNNCell(keras.layers.Layer):
+        """Add one to the input and state.
+
+        This cell is used for testing state_size and output_size."""
+
+        def __init__(self, num_unit, **kwargs):
+            self.state_size = num_unit
+            super(PlusOneRNNCell, self).__init__(**kwargs)
+
+        def build(self, input_shape):
+            self.output_size = input_shape[-1]
+
+        def call(self, inputs, states):
+            return inputs + 1, [states[0] + 1]
+
+    batch = 32
+    time_step = 4
+    state_size = 5
+    input_size = 6
+    cell = PlusOneRNNCell(state_size)
+    x = keras.Input((None, input_size))
+    layer = recurrent.RNN(cell)
+    y = layer(x)
+
+    assert cell.state_size == state_size
+    init_state = layer.get_initial_state(x)
+    assert len(init_state) == 1
+    if K.backend() != 'theano':
+        # theano does not support static shape inference.
+        assert K.int_shape(init_state[0]) == (None, state_size)
+
+    model = keras.models.Model(x, y)
+    model.compile(optimizer='rmsprop', loss='mse')
+    model.train_on_batch(
+        np.zeros((batch, time_step, input_size)),
+        np.zeros((batch, input_size)))
+    assert model.output_shape == (None, input_size)
 
 
 if __name__ == '__main__':

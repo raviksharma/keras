@@ -123,8 +123,9 @@ def wider2net_conv2d(teacher_w1, teacher_b1, teacher_w2, new_width, init):
     if init == 'random-pad':
         new_w1 = np.random.normal(0, 0.1, size=teacher_w1.shape[:3] + (n,))
         new_b1 = np.ones(n) * 0.1
-        new_w2 = np.random.normal(0, 0.1,
-                                  size=teacher_w2.shape[:2] + (n, teacher_w2.shape[3]))
+        new_w2 = np.random.normal(
+            0, 0.1,
+            size=teacher_w2.shape[:2] + (n, teacher_w2.shape[3]))
     elif init == 'net2wider':
         index = np.random.randint(teacher_w1.shape[3], size=n)
         factors = np.bincount(index)[index] + 1.
@@ -208,7 +209,7 @@ def deeper2net_conv2d(teacher_w):
     kh, kw, num_channel, filters = teacher_w.shape
     student_w = np.zeros_like(teacher_w)
     for i in range(filters):
-        student_w[(kh - 1) / 2, (kw - 1) / 2, i, i] = 1.
+        student_w[(kh - 1) // 2, (kw - 1) // 2, i, i] = 1.
     student_b = np.zeros(filters)
     return student_w, student_b
 
@@ -239,7 +240,7 @@ def make_teacher_model(x_train, y_train,
     model.add(Dense(64, activation='relu', name='fc1'))
     model.add(Dense(num_classes, activation='softmax', name='fc2'))
     model.compile(loss='categorical_crossentropy',
-                  optimizer=SGD(lr=0.01, momentum=0.9),
+                  optimizer=SGD(learning_rate=0.01, momentum=0.9),
                   metrics=['accuracy'])
 
     model.fit(x_train, y_train,
@@ -290,7 +291,7 @@ def make_wider_student_model(teacher_model,
     model.get_layer('fc2').set_weights([new_w_fc2, b_fc2])
 
     model.compile(loss='categorical_crossentropy',
-                  optimizer=SGD(lr=0.001, momentum=0.9),
+                  optimizer=SGD(learning_rate=0.001, momentum=0.9),
                   metrics=['accuracy'])
 
     model.fit(x_train, y_train,
@@ -339,7 +340,7 @@ def make_deeper_student_model(teacher_model,
                  'conv1', 'conv2', 'fc1', 'fc2'])
 
     model.compile(loss='categorical_crossentropy',
-                  optimizer=SGD(lr=0.001, momentum=0.9),
+                  optimizer=SGD(learning_rate=0.001, momentum=0.9),
                   metrics=['accuracy'])
 
     model.fit(x_train, y_train,

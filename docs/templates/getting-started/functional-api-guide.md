@@ -24,9 +24,9 @@ from keras.models import Model
 inputs = Input(shape=(784,))
 
 # a layer instance is callable on a tensor, and returns a tensor
-x = Dense(64, activation='relu')(inputs)
-x = Dense(64, activation='relu')(x)
-predictions = Dense(10, activation='softmax')(x)
+output_1 = Dense(64, activation='relu')(inputs)
+output_2 = Dense(64, activation='relu')(output_1)
+predictions = Dense(10, activation='softmax')(output_2)
 
 # This creates a model that includes
 # the Input layer and three Dense layers
@@ -85,6 +85,8 @@ The integers will be between 1 and 10,000 (a vocabulary of 10,000 words) and the
 ```python
 from keras.layers import Input, Embedding, LSTM, Dense
 from keras.models import Model
+import numpy as np
+np.random.seed(0)  # Set a random seed for reproducibility
 
 # Headline input: meant to receive sequences of 100 integers, between 1 and 10000.
 # Note that we can name any layer by passing it a "name" argument.
@@ -138,12 +140,16 @@ model.compile(optimizer='rmsprop', loss='binary_crossentropy',
 We can train the model by passing it lists of input arrays and target arrays:
 
 ```python
-model.fit([headline_data, additional_data], [labels, labels],
+headline_data = np.round(np.abs(np.random.rand(12, 100) * 100))
+additional_data = np.random.randn(12, 5)
+headline_labels = np.random.randn(12, 1)
+additional_labels = np.random.randn(12, 1)
+model.fit([headline_data, additional_data], [headline_labels, additional_labels],
           epochs=50, batch_size=32)
 ```
 
 Since our inputs and outputs are named (we passed them a "name" argument),
-We could also have compiled the model via:
+we could also have compiled the model via:
 
 ```python
 model.compile(optimizer='rmsprop',
@@ -152,8 +158,17 @@ model.compile(optimizer='rmsprop',
 
 # And trained it via:
 model.fit({'main_input': headline_data, 'aux_input': additional_data},
-          {'main_output': labels, 'aux_output': labels},
+          {'main_output': headline_labels, 'aux_output': additional_labels},
           epochs=50, batch_size=32)
+```
+
+To use the model for inferencing, use
+```python
+model.predict({'main_input': headline_data, 'aux_input': additional_data})
+```
+or alternatively,
+```python
+pred = model.predict([headline_data, additional_data])
 ```
 
 -----
@@ -168,15 +183,15 @@ One way to achieve this is to build a model that encodes two tweets into two vec
 
 Because the problem is symmetric, the mechanism that encodes the first tweet should be reused (weights and all) to encode the second tweet. Here we use a shared LSTM layer to encode the tweets.
 
-Let's build this with the functional API. We will take as input for a tweet a binary matrix of shape `(140, 256)`, i.e. a sequence of 140 vectors of size 256, where each dimension in the 256-dimensional vector encodes the presence/absence of a character (out of an alphabet of 256 frequent characters).
+Let's build this with the functional API. We will take as input for a tweet a binary matrix of shape `(280, 256)`, i.e. a sequence of 280 vectors of size 256, where each dimension in the 256-dimensional vector encodes the presence/absence of a character (out of an alphabet of 256 frequent characters).
 
 ```python
 import keras
 from keras.layers import Input, LSTM, Dense
 from keras.models import Model
 
-tweet_a = Input(shape=(140, 256))
-tweet_b = Input(shape=(140, 256))
+tweet_a = Input(shape=(280, 256))
+tweet_b = Input(shape=(280, 256))
 ```
 
 To share a layer across different inputs, simply instantiate the layer once, then call it on as many inputs as you want:
@@ -222,7 +237,7 @@ In previous versions of Keras, you could obtain the output tensor of a layer ins
 As long as a layer is only connected to one input, there is no confusion, and `.output` will return the one output of the layer:
 
 ```python
-a = Input(shape=(140, 256))
+a = Input(shape=(280, 256))
 
 lstm = LSTM(32)
 encoded_a = lstm(a)
@@ -232,8 +247,8 @@ assert lstm.output == encoded_a
 
 Not so if the layer has multiple inputs:
 ```python
-a = Input(shape=(140, 256))
-b = Input(shape=(140, 256))
+a = Input(shape=(280, 256))
+b = Input(shape=(280, 256))
 
 lstm = LSTM(32)
 encoded_a = lstm(a)
@@ -378,7 +393,7 @@ image_input = Input(shape=(224, 224, 3))
 encoded_image = vision_model(image_input)
 
 # Next, let's define a language model to encode the question into a vector.
-# Each question will be at most 100 word long,
+# Each question will be at most 100 words long,
 # and we will index words as integers from 1 to 9999.
 question_input = Input(shape=(100,), dtype='int32')
 embedded_question = Embedding(input_dim=10000, output_dim=256, input_length=100)(question_input)

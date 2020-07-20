@@ -31,11 +31,16 @@ python neural_doodle.py --nlabels 4 --style-image Renoir/style.png \
 
 # References
 
-- [Dmitry Ulyanov's blog on fast-neural-doodle](http://dmitryulyanov.github.io/feed-forward-neural-doodle/)
-- [Torch code for fast-neural-doodle](https://github.com/DmitryUlyanov/fast-neural-doodle)
-- [Torch code for online-neural-doodle](https://github.com/DmitryUlyanov/online-neural-doodle)
-- [Paper Texture Networks: Feed-forward Synthesis of Textures and Stylized Images](http://arxiv.org/abs/1603.03417)
-- [Discussion on parameter tuning](https://github.com/fchollet/keras/issues/3705)
+- [Dmitry Ulyanov's blog on fast-neural-doodle]
+    (http://dmitryulyanov.github.io/feed-forward-neural-doodle/)
+- [Torch code for fast-neural-doodle]
+    (https://github.com/DmitryUlyanov/fast-neural-doodle)
+- [Torch code for online-neural-doodle]
+    (https://github.com/DmitryUlyanov/online-neural-doodle)
+- [Paper Texture Networks: Feed-forward Synthesis of Textures and Stylized Images]
+    (http://arxiv.org/abs/1603.03417)
+- [Discussion on parameter tuning]
+    (https://github.com/keras-team/keras/issues/3705)
 
 # Resources
 
@@ -47,12 +52,11 @@ import time
 import argparse
 import numpy as np
 from scipy.optimize import fmin_l_bfgs_b
-from scipy.misc import imread, imsave
 
 from keras import backend as K
 from keras.layers import Input, AveragePooling2D
 from keras.models import Model
-from keras.preprocessing.image import load_img, img_to_array
+from keras.preprocessing.image import load_img, save_img, img_to_array
 from keras.applications import vgg19
 
 # Command line arguments
@@ -83,8 +87,10 @@ use_content_img = content_img_path is not None
 num_labels = args.nlabels
 num_colors = 3  # RGB
 # determine image sizes based on target_mask
-ref_img = imread(target_mask_path)
+ref_img = img_to_array(load_img(target_mask_path))
 img_nrows, img_ncols = ref_img.shape[:2]
+
+num_iterations = 50
 
 total_variation_weight = 50.
 style_weight = 1.
@@ -135,7 +141,8 @@ def kmeans(xs, k):
 def load_mask_labels():
     '''Load both target and style masks.
     A mask image (nr x nc) with m labels/colors will be loaded
-    as a 4D boolean tensor: (1, m, nr, nc) for 'channels_first' or (1, nr, nc, m) for 'channels_last'
+    as a 4D boolean tensor:
+        (1, m, nr, nc) for 'channels_first' or (1, nr, nc, m) for 'channels_last'
     '''
     target_mask_img = load_img(target_mask_path,
                                target_size=(img_nrows, img_ncols))
@@ -164,6 +171,7 @@ def load_mask_labels():
 
     return (np.expand_dims(style_mask, axis=0),
             np.expand_dims(target_mask, axis=0))
+
 
 # Create tensor variables for images
 if K.image_data_format() == 'channels_first':
@@ -261,8 +269,10 @@ def style_loss(style_image, target_image, style_masks, target_masks):
         else:
             style_mask = style_masks[:, :, i]
             target_mask = target_masks[:, :, i]
-        loss += region_style_loss(style_image,
-                                  target_image, style_mask, target_mask)
+        loss = loss + region_style_loss(style_image,
+                                        target_image,
+                                        style_mask,
+                                        target_mask)
     return loss
 
 
@@ -284,13 +294,14 @@ def total_variation_loss(x):
                      x[:, :img_nrows - 1, 1:, :])
     return K.sum(K.pow(a + b, 1.25))
 
+
 # Overall loss is the weighted sum of content_loss, style_loss and tv_loss
 # Each individual loss uses features from image/mask models.
 loss = K.variable(0)
 for layer in content_feature_layers:
     content_feat = image_features[layer][CONTENT, :, :, :]
     target_feat = image_features[layer][TARGET, :, :, :]
-    loss += content_weight * content_loss(content_feat, target_feat)
+    loss = loss + content_weight * content_loss(content_feat, target_feat)
 
 for layer in style_feature_layers:
     style_feat = image_features[layer][STYLE, :, :, :]
@@ -298,9 +309,9 @@ for layer in style_feature_layers:
     style_masks = mask_features[layer][STYLE, :, :, :]
     target_masks = mask_features[layer][TARGET, :, :, :]
     sl = style_loss(style_feat, target_feat, style_masks, target_masks)
-    loss += (style_weight / len(style_feature_layers)) * sl
+    loss = loss + (style_weight / len(style_feature_layers)) * sl
 
-loss += total_variation_weight * total_variation_loss(target_image)
+loss = loss + total_variation_weight * total_variation_loss(target_image)
 loss_grads = K.gradients(loss, target_image)
 
 # Evaluator class for computing efficiency
@@ -347,6 +358,7 @@ class Evaluator(object):
         self.grad_values = None
         return grad_values
 
+
 evaluator = Evaluator()
 
 # Generate images by iterative optimization
@@ -355,8 +367,8 @@ if K.image_data_format() == 'channels_first':
 else:
     x = np.random.uniform(0, 255, (1, img_nrows, img_ncols, 3)) - 128.
 
-for i in range(50):
-    print('Start of iteration', i)
+for i in range(num_iterations):
+    print('Start of iteration', i, '/', num_iterations)
     start_time = time.time()
     x, min_val, info = fmin_l_bfgs_b(evaluator.loss, x.flatten(),
                                      fprime=evaluator.grads, maxfun=20)
@@ -364,7 +376,7 @@ for i in range(50):
     # save current generated image
     img = deprocess_image(x.copy())
     fname = target_img_prefix + '_at_iteration_%d.png' % i
-    imsave(fname, img)
+    save_img(fname, img)
     end_time = time.time()
     print('Image saved as', fname)
     print('Iteration %d completed in %ds' % (i, end_time - start_time))

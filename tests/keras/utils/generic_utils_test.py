@@ -1,22 +1,24 @@
 import sys
 import pytest
 import numpy as np
+import marshal
 from keras.utils.generic_utils import custom_object_scope
 from keras.utils.generic_utils import has_arg
 from keras.utils.generic_utils import Progbar
-from keras.utils.test_utils import keras_test
 from keras import activations
 from keras import regularizers
 
 
-@keras_test
 def test_progbar():
-    n = 2
-    input_arr = np.random.random((n, n, n))
-    bar = Progbar(n)
+    values_s = [None,
+                [['key1', 1], ['key2', 1e-4]],
+                [['key3', 1], ['key2', 1e-4]]]
 
-    for i, arr in enumerate(input_arr):
-        bar.update(i, list(arr))
+    for target in (len(values_s) - 1, None):
+        for verbose in (0, 1, 2):
+            bar = Progbar(target, width=30, verbose=verbose, interval=0.05)
+            for current, values in enumerate(values_s):
+                bar.update(current, values=values)
 
 
 def test_custom_objects_scope():
@@ -64,7 +66,8 @@ def test_has_arg(fn, name, accept_all, expected):
             if sys.version_info >= (3,):
                 raise
             pytest.skip('Function is not compatible with Python 2')
-        context.pop('__builtins__', None)  # Sometimes exec adds builtins to the context
+        # Sometimes exec adds builtins to the context
+        context.pop('__builtins__', None)
         fn, = context.values()
 
     assert has_arg(fn, name, accept_all) is expected
